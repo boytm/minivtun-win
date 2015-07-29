@@ -39,6 +39,9 @@ from struct import pack
 from struct import unpack
 
 
+unused_input_buffer = 'unused' # workground for NIDS 6 dirver
+unused_output_buffer = win32file.AllocateReadBuffer(4) # workground for NIDS 6 dirver
+
 handle = None
 sock = None
 mtu_size = 1500
@@ -291,8 +294,7 @@ def usage():
       -r <ip:port>          IP:port of peer device
       -a <tun_lip/tun_rip>  tunnel IP pair
       -t <keepalive_timeo>  seconds between sending keep-alive packets, default: 13
-      -e <encrypt_key>      shared password for data encryption
-      -N                    turn off encryption for tunnelling data
+      -e <encrypt_key>      shared password for data encryption (if this option is missing, turn off encryption. equivalent: minivtun -N )
       -d                    run as daemon process
       -h                    print this help
     """ % (sys.argv[0], )
@@ -342,22 +344,22 @@ if __name__ == '__main__':
                                   None)
     
     mtu_size = unpack('I', win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_GET_MTU,
-                                  None, 4, None))[0];
+                                  unused_input_buffer, 4, None))[0];
     if False:
         win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_CONFIG_POINT_TO_POINT,
-                                  '\xc0\xa8\x11\x01\xc0\xa8\x11\x10', None);
+                                  '\xc0\xa8\x11\x01\xc0\xa8\x11\x10', unused_output_buffer);
     else:
-        win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_SET_MEDIA_STATUS, '\x01\x00\x00\x00', None)
+        win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_SET_MEDIA_STATUS, '\x01\x00\x00\x00', unused_output_buffer)
         # ip network mask
         # 10.3.0.8 10.3.0.0 255.255.255.0
         win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_CONFIG_TUN,
                                   adapter_ip.packed + adapter_ip.network.network_address.packed + adapter_ip.netmask.packed,
-                                  None)
+                                  unused_output_buffer)
         # adpter ip, adpter mask, dhcp server ip, lease time in seconds (host order)
         # 10.3.0.8 255.255.255.0 10.3.0.1 1200s
         win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_CONFIG_DHCP_MASQ,
                                   adapter_ip.packed + adapter_ip.netmask.packed + dhcp_server.packed +'\x10\x0e\x00\x00',
-                                  None)
+                                  unused_output_buffer)
     
     addreses = socket.getaddrinfo(server_ip, server_port, socket.AF_INET, 0, socket.SOL_UDP)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
