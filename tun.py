@@ -54,8 +54,22 @@ password = None
 password_md5 = None
 keepalive_timer = None
 keepalive_interval = 13
+crypto_type = "aes_128_cbc"
 
-AES_IVEC_INITVAL = ''.join(map(chr, ( 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90)))
+
+cipher_pairs = {
+	"aes-128": "aes_128_cbc",
+	"aes-256": "aes_256_cbc",
+	"des": "des_cbc",
+	"desx": "desx_cbc",
+	"rc4": "rc4",
+};
+
+
+AES_IVEC_INITVAL = ''.join(map(chr, ( 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90,
+                                     0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90,
+                                     0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90,
+                                     0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90)))
 
 import M2Crypto
 ENC=1
@@ -68,7 +82,7 @@ def build_cipher(key, iv, op=ENC):
     so padding must be disabled when decrypt, otherwise:
         m2.cipher_final(self.ctx) EVPError: bad decrypt
     """
-    return M2Crypto.EVP.Cipher(alg='aes_128_cbc', key=key, iv=iv, op=op, padding = 1 if op == ENC else 0)
+    return M2Crypto.EVP.Cipher(alg=crypto_type, key=key, iv=iv, op=op, padding = 1 if op == ENC else 0)
 
 def encrypt(key, data):
     cipher = build_cipher(key, AES_IVEC_INITVAL, ENC)
@@ -297,7 +311,9 @@ def usage():
       -e <encrypt_key>      shared password for data encryption (if this option is missing, turn off encryption. equivalent: minivtun -N )
       -d                    run as daemon process
       -h                    print this help
-    """ % (sys.argv[0], )
+    Supported encryption types:
+      %s
+    """ % (sys.argv[0], ', '.join(cipher_pairs.keys()))
     
 def gen_dhcp_server(interface):
     for i in interface.network.hosts():
@@ -321,8 +337,13 @@ if __name__ == '__main__':
         elif o == '-e':
             password = a
             password_md5 = hashlib.md5(a).digest()
-        elif o == '-t':
+        elif o == '-k':
             keepalive_interval = int(a)
+        elif o == '-t':
+            if a in cipher_pairs:
+                crypto_type = cipher_pairs[a]
+            else:
+                sys.exit('No such encryption type defined')
         else:
             assert False, "unhandled option"
 
