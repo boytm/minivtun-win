@@ -39,8 +39,8 @@ from struct import pack
 from struct import unpack
 
 
-unused_input_buffer = 'unused' # workground for NIDS 6 dirver
-unused_output_buffer = win32file.AllocateReadBuffer(4) # workground for NIDS 6 dirver
+unused_input_buffer = 'unused' # workaround for NIDS 6 dirver
+unused_output_buffer = win32file.AllocateReadBuffer(4) # workaround for NIDS 6 dirver
 
 handle = None
 sock = None
