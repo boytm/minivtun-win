@@ -2,6 +2,8 @@
 The minivtun is a tiny layer 3 vpn service on posix platform.
 And this is a windows client for it.
 
+No IPv6 tunnel and point-to-point mode due to limitation of driver
+
 # Installation #
 
 ### Install windows tap driver 
@@ -27,12 +29,15 @@ python setup.py py2exe
     Usage:
       minivtun [options]
     Options:
-      -r <ip:port>          IP:port of peer device
-      -a <tun_lip/tun_rip>  tunnel IP pair
-      -t <keepalive_timeo>  seconds between sending keep-alive packets, default: 13
-      -e <encrypt_key>      shared password for data encryption (if this option is missing, turn off encryption. equivalent: minivtun -N )
-      -d                    run as daemon process
-      -h                    print this help
+      -r, --remote <ip:port>            IP:port of server to connect
+      -a, --ipv4-addr <tun_lip/pfx_len> IPv4 address/prefix length pair
+      -k, --keepalive <keepalive_timeo> seconds between sending keep-alive packets, default: 13
+      -t, --type <encryption_type>      encryption type, default: aes_128_cbc
+      -e, --key <encrypt_key>           shared password for data encryption (if this option is missing, turn off encryption)
+      -d                                run as daemon process
+      -h, --help                        print this help
+    Supported encryption types:
+      rc4, des, desx, aes-256, aes-128
 
 
 ### Examples
@@ -45,4 +50,8 @@ Client: Connect VPN to the server (assuming address vpn.abc.com), with local vir
 
     python tun.py -r vpn.abc.com:1414 -a 10.7.0.33/24 
 
+
+### TODO
+
+route control
 

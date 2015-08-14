@@ -66,7 +66,7 @@ cipher_pairs = {
 };
 
 
-AES_IVEC_INITVAL = ''.join(map(chr, ( 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90,
+AES_IVEC_INITVAL = ''.join(map(chr, (0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90,
                                      0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90,
                                      0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90,
                                      0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x90)))
@@ -305,15 +305,17 @@ def usage():
     Usage:
       %s [options]
     Options:
-      -r <ip:port>          IP:port of peer device
-      -a <tun_lip/tun_rip>  tunnel IP pair
-      -t <keepalive_timeo>  seconds between sending keep-alive packets, default: 13
-      -e <encrypt_key>      shared password for data encryption (if this option is missing, turn off encryption. equivalent: minivtun -N )
-      -d                    run as daemon process
-      -h                    print this help
+      -r, --remote <ip:port>            IP:port of server to connect
+      -a, --ipv4-addr <tun_lip/pfx_len> IPv4 address/prefix length pair
+      -k, --keepalive <keepalive_timeo> seconds between sending keep-alive packets, default: %d
+      -t, --type <encryption_type>      encryption type, default: %s
+      -e, --key <encrypt_key>           shared password for data encryption (if this option is missing, turn off encryption)
+      -d                                run as daemon process
+      -h, --help                        print this help
     Supported encryption types:
       %s
-    """ % (sys.argv[0], ', '.join(cipher_pairs.keys()))
+    """ % (sys.argv[0], keepalive_interval,
+           crypto_type, ', '.join(cipher_pairs.keys()))
     
 def gen_dhcp_server(interface):
     for i in interface.network.hosts():
@@ -322,38 +324,42 @@ def gen_dhcp_server(interface):
 
 if __name__ == '__main__':
     # /usr/sbin/minivtun -r vpn.abc.com:1414 -a 10.7.0.33/24 -e Hello -d
-    optlist, args = getopt.getopt(sys.argv[1:], 'r:a:t:e:dvh')
+    optlist, args = getopt.getopt(sys.argv[1:], 'r:a:k:t:e:dh',
+                                  ['verbose', 'help', 'remote=', 'ipv4-addr=', 'key=', 'keepalive=', 'type='])
     for o, a in optlist:
-        if o == "-v":
+        if o in ("--verbose", ):
             verbose = True
         elif o in ("-h", "--help"):
             usage()
             sys.exit()
-        elif o == '-r':
+        elif o in ('-r', '--remote'):
             server_ip, server_port = a.split(':')
             server_port = int(server_port)
-        elif o == '-a':
-            adapter_ip = ipaddress.IPv4Interface(unicode(a))
-        elif o == '-e':
+        elif o in ('-a', '--ipv4-addr'):
+            try:
+                adapter_ip = ipaddress.IPv4Interface(unicode(a))
+            except ipaddress.NetmaskValueError as e:
+                sys.exit('Invalid prefixlen or netmask')
+        elif o in ('-e', '--key'):
             password = a
             password_md5 = hashlib.md5(a).digest()
-        elif o == '-k':
+        elif o in ('-k', '--keepalive'):
             keepalive_interval = int(a)
-        elif o == '-t':
+        elif o in ('-t', '--type'):
             if a in cipher_pairs:
                 crypto_type = cipher_pairs[a]
             else:
                 sys.exit('No such encryption type defined')
         else:
-            assert False, "unhandled option"
+            assert False, "Unhandled option %s" % (o, )
 
     if not server_ip:
-        sys.exit('peer device required')
+        sys.exit('peer address required')
 
     if adapter_ip:
         dhcp_server = gen_dhcp_server(adapter_ip)
     else:
-        sys.exit('tunnel IP pair required')
+        sys.exit('tunnel IP address required')
     
     guid = get_device_guid()
     # must be OVERLAPPED, otherwise write action will be blocked by read
@@ -366,12 +372,15 @@ if __name__ == '__main__':
     
     mtu_size = unpack('I', win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_GET_MTU,
                                   unused_input_buffer, 4, None))[0];
+    
+    win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_SET_MEDIA_STATUS, '\x01\x00\x00\x00', unused_output_buffer)
     if False:
+        #adapter_ip = point_to_point[0]
+        # adapter ip, remote ip
         win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_CONFIG_POINT_TO_POINT,
-                                  '\xc0\xa8\x11\x01\xc0\xa8\x11\x10', unused_output_buffer);
+                                  point_to_point[0].packed + point_to_point[1].packed, unused_output_buffer);
     else:
-        win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_SET_MEDIA_STATUS, '\x01\x00\x00\x00', unused_output_buffer)
-        # ip network mask
+        # ip, network, mask
         # 10.3.0.8 10.3.0.0 255.255.255.0
         win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_CONFIG_TUN,
                                   adapter_ip.packed + adapter_ip.network.network_address.packed + adapter_ip.netmask.packed,
