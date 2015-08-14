@@ -306,7 +306,8 @@ def usage():
       %s [options]
     Options:
       -r, --remote <ip:port>            IP:port of server to connect
-      -a, --ipv4-addr <tun_lip/pfx_len> IPv4 address/prefix length pair
+      -a, --ipv4-addr <tun_lip/tun_rip> pointopoint IPv4 pair of the virtual interface
+                      <tun_lip/pfx_len> IPv4 address/prefix length pair
       -k, --keepalive <keepalive_timeo> seconds between sending keep-alive packets, default: %d
       -t, --type <encryption_type>      encryption type, default: %s
       -e, --key <encrypt_key>           shared password for data encryption (if this option is missing, turn off encryption)
@@ -323,6 +324,7 @@ def gen_dhcp_server(interface):
             return i
 
 if __name__ == '__main__':
+    point_to_point = None
     # /usr/sbin/minivtun -r vpn.abc.com:1414 -a 10.7.0.33/24 -e Hello -d
     optlist, args = getopt.getopt(sys.argv[1:], 'r:a:k:t:e:dh',
                                   ['verbose', 'help', 'remote=', 'ipv4-addr=', 'key=', 'keepalive=', 'type='])
@@ -339,7 +341,8 @@ if __name__ == '__main__':
             try:
                 adapter_ip = ipaddress.IPv4Interface(unicode(a))
             except ipaddress.NetmaskValueError as e:
-                sys.exit('Invalid prefixlen or netmask')
+                # point to point mode
+                point_to_point = map(lambda ip: ipaddress.IPv4Address(unicode(ip)), a.split('/'))
         elif o in ('-e', '--key'):
             password = a
             password_md5 = hashlib.md5(a).digest()
@@ -358,7 +361,7 @@ if __name__ == '__main__':
 
     if adapter_ip:
         dhcp_server = gen_dhcp_server(adapter_ip)
-    else:
+    elif not point_to_point:
         sys.exit('tunnel IP address required')
     
     guid = get_device_guid()
@@ -374,13 +377,13 @@ if __name__ == '__main__':
                                   unused_input_buffer, 4, None))[0];
     
     win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_SET_MEDIA_STATUS, '\x01\x00\x00\x00', unused_output_buffer)
-    if False:
-        #adapter_ip = point_to_point[0]
+    if point_to_point:
+        adapter_ip = point_to_point[0]
         # adapter ip, remote ip
         win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_CONFIG_POINT_TO_POINT,
                                   point_to_point[0].packed + point_to_point[1].packed, unused_output_buffer);
     else:
-        # ip, network, mask
+        # ip network mask
         # 10.3.0.8 10.3.0.0 255.255.255.0
         win32file.DeviceIoControl(handle, TAP_WIN_IOCTL_CONFIG_TUN,
                                   adapter_ip.packed + adapter_ip.network.network_address.packed + adapter_ip.netmask.packed,
