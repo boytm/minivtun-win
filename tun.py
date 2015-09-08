@@ -19,7 +19,7 @@ import sys
 import getopt
 import random
 import socket
-import threading
+import time
 import hashlib
 from pprint import pprint
 import _winreg as reg
@@ -42,6 +42,7 @@ from struct import unpack
 unused_input_buffer = 'unused' # workaround for NIDS 6 dirver
 unused_output_buffer = win32file.AllocateReadBuffer(4) # workaround for NIDS 6 dirver
 
+completion_port = None
 handle = None
 sock = None
 mtu_size = 1500
@@ -55,6 +56,8 @@ password_md5 = None
 keepalive_timer = None
 keepalive_interval = 13
 crypto_type = "aes_128_cbc"
+now = time.time()
+last_send = now
 
 
 cipher_pairs = {
@@ -230,23 +233,39 @@ def unpack_header(s):
 
 def keepalive():
     # only send when no client -> server traffice
+    global sock, adapter_ip, now, last_send
     s = pack_keepalive(adapter_ip.packed)
     sock.sendall(local_to_netmsg(s))
+    last_send = now
     
     
-class NetworkRecv(threading.Thread):
+class NetworkRecv():
     def __init__(self):
         self.overlapped_tx         = pywintypes.OVERLAPPED()
-        self.overlapped_tx.hEvent  = win32event.CreateEvent(None, 0, 0, None)
+        #self.overlapped_tx.hEvent  = win32event.CreateEvent(None, 0, 0, None)
         
-        # initialize parent
-        threading.Thread.__init__(self)
+        self.overlapped_rx         = pywintypes.OVERLAPPED()
+        #self.overlapped_rx.hEvent  = win32event.CreateEvent(None, 0, 0, None)
+        
+        generator = self.run()
+        self.overlapped_tx.object = generator
+        self.overlapped_rx.object = generator
+        generator.next()
+        
         
     def run(self):
+        global sock, handle, mtu_size, verbose
+        buf = win32file.AllocateReadBuffer(2000)
         while True:
-            buf, addr = sock.recvfrom(2000)
-            buf = netmsg_to_local(buf)
-            p = unpack_header(buf)
+            rc, bytes_recvd = win32file.WSARecv(sock.fileno(), buf, self.overlapped_rx)
+            assert rc == 0 or rc == win32file.WSA_IO_PENDING
+            
+            bytes_recvd = yield
+                
+            p = buf[:bytes_recvd]
+                    
+            p = netmsg_to_local(p)
+            p = unpack_header(p)
             if p:
                 if verbose:
                     print 'tunnel send: '
@@ -259,45 +278,57 @@ class NetworkRecv(threading.Thread):
                         print 'Unknown layer 3 protocol'
                     
                 win32file.WriteFile(handle, p, self.overlapped_tx)
-                win32event.WaitForSingleObject(self.overlapped_tx.hEvent, win32event.INFINITE)
+                yield
                 
                 #print 'tunnel send complete'
       
-class TunnelRecv(threading.Thread):
+class TunnelRecv():
     def __init__(self):
-        self.overlapped_rx         = pywintypes.OVERLAPPED()
-        self.overlapped_rx.hEvent  = win32event.CreateEvent(None, 0, 0, None)
+        self.overlapped_tx         = pywintypes.OVERLAPPED()
+        #self.overlapped_tx.hEvent  = win32event.CreateEvent(None, 0, 0, None)
         
-        # initialize parent
-        threading.Thread.__init__(self)
+        self.overlapped_rx         = pywintypes.OVERLAPPED()
+        #self.overlapped_rx.hEvent  = win32event.CreateEvent(None, 0, 0, None)
+        
+        generator = self.run()
+        self.overlapped_tx.object = generator
+        self.overlapped_rx.object = generator
+        generator.next()
         
     def run(self):
+        global sock, handle, mtu_size, verbose, now, last_send
+        buf = win32file.AllocateReadBuffer(mtu_size)
         while True:
             # wait for data
-            l, p = win32file.ReadFile(handle, mtu_size, self.overlapped_rx)
-            while True:
-                rc = win32event.WaitForSingleObject(self.overlapped_rx.hEvent, 1000 * keepalive_interval)
-                if win32event.WAIT_TIMEOUT == rc:
-                    keepalive()
-                elif win32event.WAIT_OBJECT_0 == rc:
-                    self.overlapped_rx.Offset = self.overlapped_rx.Offset + len(p)
-                    
-                    # overlapped mode, return a PyOVERLAPPEDReadBuffer instead of str
-                    p = p[:win32file.GetOverlappedResult(handle, self.overlapped_rx, 0)]
-                    
-                    if verbose:
-                        print 'tunnel recv: '
-                        #pprint(Ethernet(p))
-                        if (ord(p[0])&0xf0) == 0x40:
-                            pprint(IP(p))
-                        elif (ord(p[0])&0xf0)==0x60:
-                            pprint(IP6(p))
-                        else:
-                            print 'Unknown layer 3 protocol'
-                            continue # not support
+            l, _ = win32file.ReadFile(handle, buf, self.overlapped_rx)
+            # ERROR_IO_PENDING, maybe 0 also
+            #assert win32api.GetLastError() == win32file.ERROR_IO_PENDING
+
+            #rc = win32event.WaitForSingleObject(self.overlapped_rx.hEvent, 1000 * keepalive_interval)
+            bytes_read = yield
+
+            # overlapped mode, return a PyOVERLAPPEDReadBuffer instead of str
+            p = buf[:bytes_read]
             
-                    sock.sendall(local_to_netmsg(pack_header(p)))
-                    break # proceed next read
+            if verbose:
+                print 'tunnel recv: '
+                #pprint(Ethernet(p))
+                if (ord(p[0])&0xf0) == 0x40:
+                    pprint(IP(p))
+                elif (ord(p[0])&0xf0)==0x60:
+                    pprint(IP6(p))
+                else:
+                    print 'Unknown layer 3 protocol'
+                    continue # not support
+            
+            #sock.sendall(local_to_netmsg(pack_header(p)))
+            rc, bytes_sent = win32file.WSASend(sock.fileno(), local_to_netmsg(pack_header(p)), self.overlapped_tx)
+            
+            # even send not pending, still generate a IOCP queued message
+            bytes_sent = yield
+            assert rc == 0 or rc == win32file.WSA_IO_PENDING
+            
+            last_send = now
                 
 def usage():
     print """
@@ -402,15 +433,31 @@ if __name__ == '__main__':
     
     print 'connect OK'
     
+    completion_port = win32file.CreateIoCompletionPort(win32file.INVALID_HANDLE_VALUE, None, 0, 0)
+    print win32file.CreateIoCompletionPort(handle, completion_port, 111, 0)
+    print win32file.CreateIoCompletionPort(sock.fileno(), completion_port, 222, 0)
+    
     tun_recv = TunnelRecv()
     net_recv = NetworkRecv()
- 
-    tun_recv.start()
-    net_recv.start()
     
-    tun_recv.join()
-    net_recv.join()
+    while True:
+        rc, numberOfBytesTransferred, completionKey, overlapped = win32file.GetQueuedCompletionStatus(completion_port, int(1000 * (last_send + keepalive_interval - now)))
+        if rc:
+            if rc == win32event.WAIT_TIMEOUT:
+                pass
+            else:
+                print "error %d" % rc
+                break
+        else:
+            if overlapped and overlapped.object:
+                overlapped.object.send(numberOfBytesTransferred)
+            
+        now = time.time()
+        if last_send + keepalive_interval <= now:
+            keepalive()
+
     
+    win32file.CloseHandle(completion_port)
     sock.close()
     win32file.CloseHandle(handle)
     
