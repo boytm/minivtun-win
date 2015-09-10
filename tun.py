@@ -18,6 +18,7 @@
 import sys
 import getopt
 import random
+import signal
 import socket
 import time
 import hashlib
@@ -58,6 +59,27 @@ keepalive_interval = 13
 crypto_type = "aes_128_cbc"
 now = time.time()
 last_send = now
+running = True
+
+import threading
+class TimerThread(threading.Thread):
+    def __init__(self, interval = None):
+        self.handle = win32event.CreateWaitableTimer(None, 0, None)
+        if interval:
+            self.set_timer(interval)
+        
+        # initialize parent
+        threading.Thread.__init__(self)
+        
+    def run(self):
+        global completion_port, running
+        while running:
+            win32file.PostQueuedCompletionStatus(completion_port, 0, 0, None)
+            win32event.WaitForSingleObject(self.handle, win32event.INFINITE)
+            
+    def set_timer(self, interval):
+        global keepalive_interval
+        win32event.SetWaitableTimer(self.handle, -10000000 * interval, 1000 * interval, None, None, 0)
 
 
 cipher_pairs = {
@@ -352,7 +374,12 @@ def gen_dhcp_server(interface):
     for i in interface.network.hosts():
         if i != interface.ip:
             return i
-
+        
+def sig_handler(signum, frame):
+    global running
+    print 'Signal handler called with signal', signum
+    running = False
+    
 if __name__ == '__main__':
     # /usr/sbin/minivtun -r vpn.abc.com:1414 -a 10.7.0.33/24 -e Hello -d
     optlist, args = getopt.getopt(sys.argv[1:], 'r:a:k:t:e:dh',
@@ -432,6 +459,8 @@ if __name__ == '__main__':
             print 'connect error: ', e
     
     print 'connect OK'
+        
+    signal.signal(signal.SIGINT, sig_handler)
     
     completion_port = win32file.CreateIoCompletionPort(win32file.INVALID_HANDLE_VALUE, None, 0, 0)
     print win32file.CreateIoCompletionPort(handle, completion_port, 111, 0)
@@ -440,8 +469,12 @@ if __name__ == '__main__':
     tun_recv = TunnelRecv()
     net_recv = NetworkRecv()
     
-    while True:
-        rc, numberOfBytesTransferred, completionKey, overlapped = win32file.GetQueuedCompletionStatus(completion_port, int(1000 * (last_send + keepalive_interval - now)))
+    timer = TimerThread(1) # per second
+    timer.start()
+    
+    while running:
+        timeout = last_send + keepalive_interval - now
+        rc, numberOfBytesTransferred, completionKey, overlapped = win32file.GetQueuedCompletionStatus(completion_port, int(1000 * timeout))
         if rc:
             if rc == win32event.WAIT_TIMEOUT:
                 pass
@@ -451,8 +484,10 @@ if __name__ == '__main__':
         else:
             if overlapped and overlapped.object:
                 overlapped.object.send(numberOfBytesTransferred)
-            
-        now = time.time()
+            else:
+                # timer
+                now = time.time()
+        
         if last_send + keepalive_interval <= now:
             keepalive()
 
