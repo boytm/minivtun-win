@@ -19,12 +19,13 @@ import sys
 import getopt
 import random
 import socket
+import signal
 import threading
 import hashlib
 from pprint import pprint
 import _winreg as reg
 import win32file
-import pywintypes, win32event
+import pywintypes, win32event, winerror
 import ipaddress
 
 
@@ -42,6 +43,7 @@ from struct import unpack
 unused_input_buffer = 'unused' # workaround for NIDS 6 dirver
 unused_output_buffer = win32file.AllocateReadBuffer(4) # workaround for NIDS 6 dirver
 
+running = True
 handle = None
 sock = None
 mtu_size = 1500
@@ -243,7 +245,8 @@ class NetworkRecv(threading.Thread):
         threading.Thread.__init__(self)
         
     def run(self):
-        while True:
+        global sock, handle, running, mtu_size, verbose
+        while running:
             buf, addr = sock.recvfrom(2000)
             buf = netmsg_to_local(buf)
             p = unpack_header(buf)
@@ -258,8 +261,13 @@ class NetworkRecv(threading.Thread):
                     else:
                         print 'Unknown layer 3 protocol'
                     
-                win32file.WriteFile(handle, p, self.overlapped_tx)
-                win32event.WaitForSingleObject(self.overlapped_tx.hEvent, win32event.INFINITE)
+                rc, bytes_written = win32file.WriteFile(handle, p, self.overlapped_tx)
+                if rc == 0:
+                    assert bytes_written == len(p)
+                elif rc == winerror.ERROR_IO_PENDING:
+                    win32event.WaitForSingleObject(self.overlapped_tx.hEvent, win32event.INFINITE)
+                else:
+                    print "error %d" % rc
                 
                 #print 'tunnel send complete'
       
@@ -272,32 +280,41 @@ class TunnelRecv(threading.Thread):
         threading.Thread.__init__(self)
         
     def run(self):
-        while True:
+        global sock, handle, running, mtu_size, verbose
+        buf = win32file.AllocateReadBuffer(mtu_size)
+        while running:
             # wait for data
-            l, p = win32file.ReadFile(handle, mtu_size, self.overlapped_rx)
-            while True:
-                rc = win32event.WaitForSingleObject(self.overlapped_rx.hEvent, 1000 * keepalive_interval)
-                if win32event.WAIT_TIMEOUT == rc:
-                    keepalive()
-                elif win32event.WAIT_OBJECT_0 == rc:
-                    self.overlapped_rx.Offset = self.overlapped_rx.Offset + len(p)
-                    
-                    # overlapped mode, return a PyOVERLAPPEDReadBuffer instead of str
-                    p = p[:win32file.GetOverlappedResult(handle, self.overlapped_rx, 0)]
-                    
-                    if verbose:
-                        print 'tunnel recv: '
-                        #pprint(Ethernet(p))
-                        if (ord(p[0])&0xf0) == 0x40:
-                            pprint(IP(p))
-                        elif (ord(p[0])&0xf0)==0x60:
-                            pprint(IP6(p))
-                        else:
-                            print 'Unknown layer 3 protocol'
-                            continue # not support
+            rc, _ = win32file.ReadFile(handle, buf, self.overlapped_rx)
+            if rc == 0:
+                pass
+            elif rc in (winerror.ERROR_MORE_DATA, winerror.ERROR_IO_PENDING):
+                while running:
+                    rc = win32event.WaitForSingleObject(self.overlapped_rx.hEvent, 1000 * keepalive_interval)
+                    if win32event.WAIT_TIMEOUT == rc:
+                        keepalive()
+                    elif win32event.WAIT_OBJECT_0 == rc:
+                        break
+                    else:
+                        print "error WAIT_ABANDONED"
+            else:
+                print "error %d when ReadFile" % rc
             
-                    sock.sendall(local_to_netmsg(pack_header(p)))
-                    break # proceed next read
+            # overlapped mode, return a PyOVERLAPPEDReadBuffer instead of str
+            p = buf[:win32file.GetOverlappedResult(handle, self.overlapped_rx, 0)]
+            #self.overlapped_rx.Offset = self.overlapped_rx.Offset + len(p) # network device no need, Offset always 0
+            
+            if verbose:
+                print 'tunnel recv: '
+                #pprint(Ethernet(p))
+                if (ord(p[0])&0xf0) == 0x40:
+                    pprint(IP(p))
+                elif (ord(p[0])&0xf0)==0x60:
+                    pprint(IP6(p))
+                else:
+                    print 'Unknown layer 3 protocol'
+                    continue # not support
+    
+            sock.sendall(local_to_netmsg(pack_header(p)))
                 
 def usage():
     print """
@@ -321,6 +338,11 @@ def gen_dhcp_server(interface):
     for i in interface.network.hosts():
         if i != interface.ip:
             return i
+
+def sig_handler(signum, frame):
+    global running
+    print 'Signal handler called with signal', signum
+    running = False
 
 if __name__ == '__main__':
     # /usr/sbin/minivtun -r vpn.abc.com:1414 -a 10.7.0.33/24 -e Hello -d
@@ -402,14 +424,16 @@ if __name__ == '__main__':
     
     print 'connect OK'
     
+    signal.signal(signal.SIGINT, sig_handler)
+    
     tun_recv = TunnelRecv()
     net_recv = NetworkRecv()
  
     tun_recv.start()
-    net_recv.start()
+    net_recv.run()
     
     tun_recv.join()
-    net_recv.join()
+    #net_recv.join()
     
     sock.close()
     win32file.CloseHandle(handle)
