@@ -1,8 +1,12 @@
+
 # minivtun-win
+
+[中文使用帮助](https://github.com/boytm/minivtun-win/wiki)
+
 The minivtun is a tiny layer 3 vpn service on posix platform.
 And this is a windows client for it.
 
-No IPv6 tunnel and point-to-point mode due to limitation of driver
+No IPv6 tunnel and point-to-point mode due to limitation of tap-windows driver
 
 # Installation #
 
@@ -18,7 +22,11 @@ precompiled binary:
 
 ### Install required development components
 python 2.7  
-python package: ipaddress pywin32 M2Crypto  
+python package: ipaddress pywin32 wmi M2Crypto
+
+```cmd
+python -m pip install -r requirements.txt
+```
 
 ### Compile and pack
 python setup.py py2exe
@@ -41,6 +49,8 @@ python setup.py py2exe
 
 
 ### Examples
+
+Require administrator permission
 
 Client: Connect VPN to the server (assuming address vpn.abc.com), with local virtual address 10.7.0.33, encryption with password "Hello":
 
