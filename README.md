@@ -1,75 +1,77 @@
-
 # minivtun-win
 
-[中文使用帮助](https://github.com/boytm/minivtun-win/wiki)
+A lightweight Layer 3 VPN client for Windows, compatible with the [minivtun](https://github.com/izhaohui/minivtun) protocol.
 
-The minivtun is a tiny layer 3 vpn service on posix platform.
-And this is a windows client for it.
+## Features
 
-No IPv6 tunnel and point-to-point mode due to limitation of tap-windows driver
+- Support for both **TAP-Windows** (OpenVPN) and **Wintun** (WireGuard) network interfaces.
+- Lightweight and efficient tunneling in non-standard protocols.
+- Multiple encryption types supported: AES-128, AES-256, RC4, DES, and DESX.
+- IPv4 tunneling (IPv6 and Point-to-Point modes are currently not supported due to driver limitations).
 
-# Installation #
+## Prerequisites
 
-### Install windows tap driver 
+- **Python 3.x**
+- Windows 7 or later.
+- One of the following network drivers:
+    - **TAP-Windows**: [Download from OpenVPN](https://github.com/OpenVPN/tap-windows6)
+    - **Wintun**: [Download wintun.dll from wintun.net](https://www.wintun.net/) (place `wintun.dll` in the same directory as `tun.py`).
 
-site:  
-https://github.com/OpenVPN/tap-windows      https://github.com/OpenVPN/tap-windows6      
+## Installation
 
-precompiled binary:  
-* NIDS 5 (windows xp and above) https://swupdate.openvpn.org/community/releases/tap-windows-9.9.2_3.exe
-* NIDS 6 (windows vista and above) https://swupdate.openvpn.org/community/releases/tap-windows-9.21.1.exe
-
-
-### Install required development components
-python 3.x
-python package: pywin32 wmi pycryptodome dpkt
+1. Install the required network driver (TAP or Wintun).
+2. Install the necessary Python dependencies:
 
 ```cmd
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-### Compile and pack
-python setup.py py2exe
+## Usage
 
-# Usage #
+Run the client with administrator privileges.
 
-    Mini virtual tunneller in non-standard protocol.
-    Usage:
-      minivtun [options]
-    Options:
-      -r, --remote <ip:port>            IP:port of server to connect
-      -a, --ipv4-addr <tun_lip/pfx_len> IPv4 address/prefix length pair
-      -k, --keepalive <keepalive_timeo> seconds between sending keep-alive packets, default: 13
-      -t, --type <encryption_type>      encryption type, default: aes_128_cbc
-      -e, --key <encrypt_key>           shared password for data encryption (if this option is missing, turn off encryption)
-      -n, --wintun                      use wintun driver
-      -d                                run as daemon process
-      -h, --help                        print this help
-    Supported encryption types:
-      rc4, des, desx, aes-256, aes-128
+```text
+usage: tun.py [-r REMOTE] [-a IPV4_ADDR] [-k KEEPALIVE] [-t {aes-128,aes-256,rc4,des,desx}] [-e KEY] [-n] [-d] [--verbose]
 
-### Wintun Support
+Mini virtual tunneller in non-standard protocol.
 
-To use Wintun as the network interface:
-1. Download `wintun.dll` from [wintun.net](https://www.wintun.net/).
-2. Place `wintun.dll` in the same directory as `tun.py`.
-3. Use the `-n` or `--wintun` option.
-
+optional arguments:
+  -r REMOTE, --remote REMOTE
+                        IP:port of server to connect
+  -a IPV4_ADDR, --ipv4-addr IPV4_ADDR
+                        IPv4 address/prefix length pair (e.g. 10.7.0.33/24)
+  -k KEEPALIVE, --keepalive KEEPALIVE
+                        seconds between sending keep-alive packets
+  -t {aes-128,aes-256,rc4,des,desx}, --type {aes-128,aes-256,rc4,des,desx}
+                        encryption type (default: aes-128)
+  -e KEY, --key KEY     shared password for data encryption
+  -n, --wintun          use wintun driver
+  -d                    run as daemon process (background mode)
+  --verbose             enable verbose logging
+```
 
 ### Examples
 
-Require administrator permission
+**Using TAP driver:**
+Connect to `vpn.example.com:1414` with virtual IP `10.7.0.33` and password `MySecret`:
+```cmd
+python tun.py -r vpn.example.com:1414 -a 10.7.0.33/24 -e MySecret
+```
 
-Client: Connect VPN to the server (assuming address vpn.abc.com), with local virtual address 10.7.0.33, encryption with password "Hello":
+**Using Wintun driver:**
+Ensure `wintun.dll` is in the same folder:
+```cmd
+python tun.py -r vpn.example.com:1414 -a 10.7.0.33/24 -e MySecret --wintun
+```
 
-    python tun.py -r vpn.abc.com:1414 -a 10.7.0.33/24 -e Hello 
+## Compilation
 
-Client: Connect VPN to the server (assuming address vpn.abc.com), with local virtual address 10.7.0.33, no encryption:
+You can pack the script into a Windows executable using `py2exe`:
 
-    python tun.py -r vpn.abc.com:1414 -a 10.7.0.33/24 
+```cmd
+python setup.py py2exe
+```
 
+## License
 
-### TODO
-
-route control
-
+This project is licensed under the Apache License, Version 2.0.

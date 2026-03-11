@@ -16,7 +16,7 @@
 # under the License.
 
 import sys
-import getopt
+import argparse
 import random
 import signal
 import socket
@@ -398,25 +398,6 @@ class TunnelRecv():
 
             last_send = now
 
-def usage():
-    print("""
-    Mini virtual tunneller in non-standard protocol.
-    Usage:
-      %s [options]
-    Options:
-      -r, --remote <ip:port>            IP:port of server to connect
-      -a, --ipv4-addr <tun_lip/pfx_len> IPv4 address/prefix length pair
-      -k, --keepalive <keepalive_timeo> seconds between sending keep-alive packets, default: %d
-      -t, --type <encryption_type>      encryption type, default: %s
-      -e, --key <encrypt_key>           shared password for data encryption (if this option is missing, turn off encryption)
-      -n, --wintun                      use wintun driver
-      -d                                run as daemon process
-      -h, --help                        print this help
-    Supported encryption types:
-      %s
-    """ % (sys.argv[0], keepalive_interval,
-           crypto_type, ', '.join(cipher_pairs.keys())))
-
 def gen_dhcp_server(interface):
     for i in interface.network.hosts():
         if i != interface.ip:
@@ -447,38 +428,37 @@ def sig_handler(signum, frame):
     running = False
 
 if __name__ == '__main__':
-    use_wintun = False
-    # /usr/sbin/minivtun -r vpn.abc.com:1414 -a 10.7.0.33/24 -e Hello -d
-    optlist, args = getopt.getopt(sys.argv[1:], 'r:a:k:t:e:dhn',
-                                  ['verbose', 'help', 'remote=', 'ipv4-addr=', 'key=', 'keepalive=', 'type=', 'wintun'])
-    for o, a in optlist:
-        if o in ("--verbose", ):
-            verbose = True
-        elif o in ("-h", "--help"):
-            usage()
-            sys.exit()
-        elif o in ('-r', '--remote'):
-            server_ip, server_port = a.split(':')
-            server_port = int(server_port)
-        elif o in ('-a', '--ipv4-addr'):
-            try:
-                adapter_ip = ipaddress.IPv4Interface(str(a))
-            except ipaddress.NetmaskValueError as e:
-                sys.exit('Invalid prefixlen or netmask')
-        elif o in ('-e', '--key'):
-            password = a
-            password_md5 = hashlib.md5(a.encode('utf-8')).digest()
-        elif o in ('-k', '--keepalive'):
-            keepalive_interval = int(a)
-        elif o in ('-t', '--type'):
-            if a in cipher_pairs:
-                crypto_type = cipher_pairs[a]
-            else:
-                sys.exit('No such encryption type defined')
-        elif o in ('-n', '--wintun'):
-            use_wintun = True
-        else:
-            assert False, "Unhandled option %s" % (o, )
+    parser = argparse.ArgumentParser(description='Mini virtual tunneller in non-standard protocol.')
+    parser.add_argument('-r', '--remote', help='IP:port of server to connect', required=True)
+    parser.add_argument('-a', '--ipv4-addr', help='IPv4 address/prefix length pair (e.g. 10.7.0.33/24)', required=True)
+    parser.add_argument('-k', '--keepalive', type=int, default=keepalive_interval, help='seconds between sending keep-alive packets')
+    parser.add_argument('-t', '--type', choices=cipher_pairs.keys(), default='aes-128', help='encryption type')
+    parser.add_argument('-e', '--key', help='shared password for data encryption')
+    parser.add_argument('-n', '--wintun', action='store_true', help='use wintun driver')
+    parser.add_argument('-d', action='store_true', help='run as daemon process (not implemented in this script core)')
+    parser.add_argument('--verbose', action='store_true', help='enable verbose logging')
+
+    args = parser.parse_args()
+
+    verbose = args.verbose
+    use_wintun = args.wintun
+    keepalive_interval = args.keepalive
+    crypto_type = cipher_pairs[args.type]
+
+    try:
+        server_ip, server_port = args.remote.split(':')
+        server_port = int(server_port)
+    except ValueError:
+        sys.exit('Invalid remote address format. Use IP:port')
+
+    try:
+        adapter_ip = ipaddress.IPv4Interface(str(args.ipv4_addr))
+    except ipaddress.NetmaskValueError:
+        sys.exit('Invalid prefixlen or netmask')
+
+    if args.key:
+        password = args.key
+        password_md5 = hashlib.md5(password.encode('utf-8')).digest()
 
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, format=FORMAT)
     if not server_ip:
