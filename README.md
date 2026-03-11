@@ -21,8 +21,8 @@ precompiled binary:
 
 
 ### Install required development components
-python 2.7  
-python package: ipaddress pywin32 wmi M2Crypto
+python 3.x
+python package: pywin32 wmi pycryptodome dpkt
 
 ```cmd
 python -m pip install -r requirements.txt
@@ -42,10 +42,18 @@ python setup.py py2exe
       -k, --keepalive <keepalive_timeo> seconds between sending keep-alive packets, default: 13
       -t, --type <encryption_type>      encryption type, default: aes_128_cbc
       -e, --key <encrypt_key>           shared password for data encryption (if this option is missing, turn off encryption)
+      -n, --wintun                      use wintun driver
       -d                                run as daemon process
       -h, --help                        print this help
     Supported encryption types:
       rc4, des, desx, aes-256, aes-128
+
+### Wintun Support
+
+To use Wintun as the network interface:
+1. Download `wintun.dll` from [wintun.net](https://www.wintun.net/).
+2. Place `wintun.dll` in the same directory as `tun.py`.
+3. Use the `-n` or `--wintun` option.
 
 
 ### Examples

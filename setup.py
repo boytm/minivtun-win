@@ -1,4 +1,4 @@
-from distutils.core import setup
+from setuptools import setup
 import py2exe
 
 setup(
@@ -9,5 +9,11 @@ setup(
                            }
                 },
       console=['tun.py'],
-      zipfile = None
+      zipfile = None,
+      install_requires=[
+          'pywin32',
+          'wmi',
+          'pycryptodome',
+          'dpkt'
+      ]
 )
